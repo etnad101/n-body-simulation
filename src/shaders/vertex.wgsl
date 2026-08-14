@@ -7,7 +7,12 @@ var<uniform> camera: CameraUniform;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(1) colour: vec3<f32>,
+}
+
+struct InstanceInput {
+    @location(1) position: vec3<f32>,
+    @location(2) colour: vec3<f32>,
+    @location(3) radius: f32,
 }
 
 struct VertexOutput {
@@ -16,9 +21,9 @@ struct VertexOutput {
 }
 
 @vertex
-fn vs_main(model: VertexInput) -> VertexOutput {
+fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_pos = camera.view_proj * vec4(model.position, 1.0);
-    out.colour = model.colour;
+    out.clip_pos = camera.view_proj * vec4(model.position * instance.radius + instance.position, 1.0);
+    out.colour = instance.colour;
     return out;
 }

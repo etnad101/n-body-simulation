@@ -1,53 +1,20 @@
+mod body;
+mod camera;
+mod model;
+mod texture;
+
 use std::sync::Arc;
 
-use crate::camera::{Camera, CameraController, CameraUniform};
+use crate::engine::{
+    body::Body,
+    camera::{Camera, CameraController, CameraUniform},
+    model::{Instance, Model, Vertex},
+    texture::Texture,
+};
 use wgpu::util::DeviceExt;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    colour: [f32; 3],
-}
-
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    shader_location: 0,
-                    offset: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    shader_location: 1,
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
-        }
-    }
-}
-
-const VERTICES: [Vertex; 3] = [
-    Vertex {
-        position: [0.0, 0.5, 0.0],
-        colour: [1.0, 0.0, 0.0],
-    },
-    Vertex {
-        position: [-0.5, -0.5, 0.0],
-        colour: [0.0, 1.0, 0.0],
-    },
-    Vertex {
-        position: [0.5, -0.5, 0.0],
-        colour: [0.0, 0.0, 1.0],
-    },
-];
-
-pub struct State {
+pub struct Engine {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
     surface_configured: bool,
@@ -55,15 +22,19 @@ pub struct State {
     device: wgpu::Device,
     queue: wgpu::Queue,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
+    sphere_model: Model,
+    bodies: Vec<Body>,
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
     camera: Camera,
     camera_uniform: CameraUniform,
     camera_controller: CameraController,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    depth_texture: Texture,
 }
 
-impl State {
+impl Engine {
     pub async fn new(window: Arc<Window>) -> Self {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -136,19 +107,30 @@ impl State {
 
         let camera_controller = CameraController::new(0.2);
 
+        let sphere_model = Model::uv_sphere(&device, 1.0, 25, 25);
+        let bodies = vec![
+            Body::new(0.0, 3.0, 0.0, 1.5).with_colour(1.0, 0.0, 0.0),
+            Body::new(0.0, 0.0, 0.0, 0.1).with_colour(0.0, 1.0, 0.0),
+            Body::new(0.0, -3.0, 0.0, 1.5).with_colour(0.0, 0.0, 1.0),
+        ];
+
+        let instances: Vec<Instance> = bodies.iter().map(|b| b.create_instance()).collect();
+
+        let depth_texture = Texture::create_depth_texture(&device, &config, "Depth Texture");
+
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex Shader Module"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/vertex.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/vertex.wgsl").into()),
         });
 
         let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader Module"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fragment.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/fragment.wgsl").into()),
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(&VERTICES),
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instances),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -196,7 +178,7 @@ impl State {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Some(Vertex::desc())],
+                buffers: &[Some(Vertex::desc()), Some(Instance::desc())],
             },
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -207,7 +189,13 @@ impl State {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -237,20 +225,26 @@ impl State {
             device,
             queue,
             render_pipeline,
-            vertex_buffer,
+            sphere_model,
+            bodies,
+            instances,
+            instance_buffer,
             camera,
             camera_bind_group,
             camera_uniform,
             camera_buffer,
             camera_controller,
+            depth_texture,
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
+    pub fn handle_resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
+            self.depth_texture =
+                Texture::create_depth_texture(&self.device, &self.config, "Depth Texture");
             self.surface_configured = true;
         }
     }
@@ -323,16 +317,32 @@ impl State {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(0, self.sphere_model.vertex_buffer().slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.draw(0..VERTICES.len() as u32, 0..1);
+            render_pass.set_index_buffer(
+                self.sphere_model.index_buffer().slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            render_pass.draw_indexed(
+                0..self.sphere_model.index_count(),
+                0,
+                0..self.instances.len() as u32,
+            )
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

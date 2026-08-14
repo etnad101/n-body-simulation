@@ -1,4 +1,4 @@
-use crate::state::State;
+use crate::engine::Engine;
 
 use std::sync::Arc;
 
@@ -11,24 +11,24 @@ use winit::{
 };
 
 pub struct App {
-    state: Option<State>,
+    engine: Option<Engine>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { state: None }
+        Self { engine: None }
     }
 }
 
-impl ApplicationHandler<State> for App {
+impl ApplicationHandler<Engine> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = WindowAttributes::default().with_title("N Body Sim");
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        self.state = Some(pollster::block_on(State::new(window)));
+        self.engine = Some(pollster::block_on(Engine::new(window)));
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: State) {
-        self.state = Some(event)
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Engine) {
+        self.engine = Some(event)
     }
 
     fn window_event(
@@ -37,17 +37,17 @@ impl ApplicationHandler<State> for App {
         _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        let state = match &mut self.state {
+        let engine = match &mut self.engine {
             Some(s) => s,
             None => return,
         };
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => state.resize(size.width, size.height),
+            WindowEvent::Resized(size) => engine.handle_resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
-                state.update();
-                match state.render() {
+                engine.update();
+                match engine.render() {
                     Ok(_) => (),
                     Err(e) => {
                         println!("Error rendering: {}", e);
@@ -62,7 +62,7 @@ impl ApplicationHandler<State> for App {
                         ..
                     },
                 ..
-            } => state.handle_key(event_loop, code, key_state.is_pressed()),
+            } => engine.handle_key(event_loop, code, key_state.is_pressed()),
             _ => {}
         }
     }
