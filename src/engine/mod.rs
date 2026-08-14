@@ -32,6 +32,8 @@ pub struct Engine {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     depth_texture: Texture,
+    last_frame: Option<std::time::Instant>,
+    delta_time: f32,
 }
 
 impl Engine {
@@ -93,7 +95,7 @@ impl Engine {
         surface.configure(&device, &config);
 
         let camera = Camera {
-            eye: (0.0, 1.0, 2.0).into(),
+            eye: (0.0, 0.0, 1.0).into(),
             target: (0.0, 0.0, 0.0).into(),
             up: glam::Vec3::Y,
             aspect: config.width as f32 / config.height as f32,
@@ -109,9 +111,11 @@ impl Engine {
 
         let sphere_model = Model::uv_sphere(&device, 1.0, 25, 25);
         let bodies = vec![
-            Body::new(0.0, 3.0, 0.0, 1.5).with_colour(1.0, 0.0, 0.0),
-            Body::new(0.0, 0.0, 0.0, 0.1).with_colour(0.0, 1.0, 0.0),
-            Body::new(0.0, -3.0, 0.0, 1.5).with_colour(0.0, 0.0, 1.0),
+            Body::new(0.0, 5.0, 0.0, 1.0, 1.0)
+                .with_colour(1.0, 0.0, 0.0)
+                .with_velocity(2.0, 0.0, 0.0),
+            Body::new(0.0, 0.0, 0.0, 2.0, 1.5).with_colour(0.0, 1.0, 1.0),
+            Body::new(0.0, -5.0, 0.0, 1.0, 1.0).with_colour(0.0, 0.0, 1.0),
         ];
 
         let instances: Vec<Instance> = bodies.iter().map(|b| b.create_instance()).collect();
@@ -131,7 +135,7 @@ impl Engine {
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
             contents: bytemuck::cast_slice(&instances),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -235,6 +239,8 @@ impl Engine {
             camera_buffer,
             camera_controller,
             depth_texture,
+            last_frame: None,
+            delta_time: 0.0,
         }
     }
 
@@ -261,14 +267,48 @@ impl Engine {
         self.camera_controller.handle_key(key_code, is_pressed);
     }
 
+    fn calculate_delta_time(&mut self) {
+        let now = std::time::Instant::now();
+        if let Some(last_frame) = self.last_frame {
+            self.delta_time = (now - last_frame).as_secs_f32();
+        }
+        self.last_frame = Some(now);
+    }
+
     pub fn update(&mut self) {
+        self.calculate_delta_time();
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
+
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
-        )
+        );
+
+        let mut forces = vec![glam::Vec3::ZERO; self.bodies.len()];
+
+        for i in 0..self.bodies.len() {
+            for j in 0..self.bodies.len() {
+                if i == j {
+                    continue;
+                }
+                let force = self.bodies[i].calculate_gravity_force(&self.bodies[j]);
+                forces[i] += force;
+            }
+        }
+
+        for (body, force) in self.bodies.iter_mut().zip(forces.iter()) {
+            body.accelerate(*force);
+            body.update(self.delta_time);
+        }
+
+        self.instances = self.bodies.iter().map(|b| b.create_instance()).collect();
+        self.queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&self.instances),
+        );
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
@@ -309,9 +349,9 @@ impl Engine {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.3,
-                            b: 0.7,
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
