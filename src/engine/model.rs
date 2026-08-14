@@ -37,14 +37,6 @@ impl Instance {
         }
     }
 
-    pub fn set_position(&mut self, position: glam::Vec3) {
-        self.position = position
-    }
-
-    pub fn set_colour(&mut self, colour: glam::Vec3) {
-        self.colour = colour
-    }
-
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,

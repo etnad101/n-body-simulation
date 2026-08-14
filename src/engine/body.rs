@@ -1,4 +1,4 @@
-use crate::engine::model::{Instance, Model};
+use crate::engine::model::Instance;
 
 #[derive(Clone)]
 pub struct Body {
@@ -11,8 +11,6 @@ pub struct Body {
 
 impl Body {
     pub fn new(x: f32, y: f32, z: f32, radius: f32, mass: f32) -> Self {
-        let four_thirds = 4.0 / 3.0;
-        let volume = four_thirds * std::f32::consts::PI * radius.powi(3);
         Self {
             radius,
             mass,

@@ -27,7 +27,7 @@ impl ApplicationHandler<Engine> for App {
         self.engine = Some(pollster::block_on(Engine::new(window)));
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Engine) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: Engine) {
         self.engine = Some(event)
     }
 
