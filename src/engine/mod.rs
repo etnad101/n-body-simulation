@@ -111,11 +111,8 @@ impl Engine {
 
         let sphere_model = Model::uv_sphere(&device, 1.0, 25, 25);
         let bodies = vec![
-            Body::new(0.0, 5.0, 0.0, 1.0, 1.0)
-                .with_colour(1.0, 0.0, 0.0)
-                .with_velocity(2.0, 0.0, 0.0),
-            Body::new(0.0, 0.0, 0.0, 2.0, 1.5).with_colour(0.0, 1.0, 1.0),
-            Body::new(0.0, -5.0, 0.0, 1.0, 1.0).with_colour(0.0, 0.0, 1.0),
+            Body::new(0.0, 0.0, 0.0, 2.0, 1000.0).with_colour(0.0, 1.0, 1.0),
+            Body::new(10.0, 0.0, 0.0, 0.5, 1.0).with_velocity(0.0, 0.0, 3.16),
         ];
 
         let instances: Vec<Instance> = bodies.iter().map(|b| b.create_instance()).collect();
@@ -288,18 +285,18 @@ impl Engine {
 
         let mut forces = vec![glam::Vec3::ZERO; self.bodies.len()];
 
-        for i in 0..self.bodies.len() {
-            for j in 0..self.bodies.len() {
+        for (i, body) in self.bodies.iter().enumerate() {
+            for (j, other) in self.bodies.iter().enumerate() {
                 if i == j {
                     continue;
                 }
-                let force = self.bodies[i].calculate_gravity_force(&self.bodies[j]);
+                let force = body.calculate_gravity_force(other);
                 forces[i] += force;
             }
         }
 
         for (body, force) in self.bodies.iter_mut().zip(forces.iter()) {
-            body.accelerate(*force);
+            body.accelerate(*force, self.delta_time);
             body.update(self.delta_time);
         }
 

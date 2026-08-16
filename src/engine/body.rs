@@ -35,7 +35,7 @@ impl Body {
     }
 
     pub fn calculate_gravity_force(&self, other: &Body) -> glam::Vec3 {
-        const GRAVITY_CONSTANT: f32 = 0.1;
+        const GRAVITY_CONSTANT: f32 = 1.0;
         const EPSILON: f32 = 0.1;
         let mass = self.mass * other.mass;
         let dir = other.position - self.position;
@@ -44,13 +44,12 @@ impl Body {
         force * GRAVITY_CONSTANT
     }
 
-    pub fn accelerate(&mut self, force: glam::Vec3) {
-        self.velocity += force / self.mass;
+    pub fn accelerate(&mut self, force: glam::Vec3, delta_time: f32) {
+        self.velocity += (force / self.mass) * delta_time;
     }
 
     pub fn update(&mut self, delta_time: f32) {
         self.position += self.velocity * delta_time;
-        println!("Position: {}", self.position);
     }
 
     pub fn create_instance(&self) -> Instance {
