@@ -111,8 +111,10 @@ impl Engine {
 
         let sphere_model = Model::uv_sphere(&device, 1.0, 25, 25);
         let bodies = vec![
-            Body::new(0.0, 0.0, 0.0, 2.0, 1000.0).with_colour(0.0, 1.0, 1.0),
-            Body::new(10.0, 0.0, 0.0, 0.5, 1.0).with_velocity(0.0, 0.0, 3.16),
+            Body::new(0.0, 0.0, 0.0, 2.0, 1000.0).with_colour(1.0, 1.0, 0.0),
+            Body::new(10.0, 0.0, 0.0, 0.5, 1.0)
+                .with_velocity(0.0, 0.0, 50.0)
+                .with_colour(0.6, 0.8, 0.9),
         ];
 
         let instances: Vec<Instance> = bodies.iter().map(|b| b.create_instance()).collect();
